@@ -2,7 +2,7 @@
 
 ## Compile
 
-    docker image build -t my/mod_auth_openidc -f mod_auth_openidc.ockerfile .
+    docker image build -t my/mod_auth_openidc -f mod_auth_openidc.dockerfile .
 
 ## From fork
 

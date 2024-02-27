@@ -18,6 +18,12 @@
 
 # Apache HTTP
 
+## Configuration
+
+Generate OIDCProviderSignedJwksUri.conf, issuer.provider and issuer.conf files from entity statement
+
+    pwsh -f get-entity-statement.ps1 -Uri https://login.io.ubidemo1.com/.well-known/openid-federation
+
 ## Create image
 
 Get example.com.pem from PKI
@@ -26,7 +32,7 @@ Get example.com.pem from PKI
 
 ## Start
 
-    docker container run --rm -it -p 443:443 --name httpd my/httpd 
+    docker container run --rm -it -p 443:443 --name httpd my/httpd httpd-foreground
 
 ### Test
 
@@ -34,8 +40,25 @@ Navigate to https://localhost/cgi-bin/printenv
 
     curl -k -i https://localhost/cgi-bin/printenv
 
-## Debug
+## Start (OIDCMetadataDir)
 
-    docker container exec -it httpd /bin/bash -l
+    docker container run --rm -it -p 443:443 --name httpd my/httpd httpd-foreground -f conf/httpd-metadata.conf
 
     docker container run --rm -it -p 443:443 --name httpd my/httpd /bin/bash -l
+    ./bin/httpd -DFOREGROUND -f conf/httpd-metadata.conf
+
+### Test
+
+Navigate to https://localhost/oidc/redirect?iss=https%3A%2F%2Flogin.io.ubidemo1.com%2Fuas&target_link_uri=https://localhost/cgi-bin/printenv
+
+## Debug
+
+    docker container run --rm -it -p 443:443 my/httpd /bin/bash -l
+
+# Docker Compose
+
+    docker compose up httpd
+    docker compose down
+
+    docker compose up httpd-metadata
+    docker compose down

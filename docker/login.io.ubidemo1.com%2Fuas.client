@@ -1,0 +1,4 @@
+{
+  "client_id": "mod_auth_openidc",
+  "token_endpoint_auth": "none"
+}

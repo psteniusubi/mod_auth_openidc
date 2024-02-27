@@ -7,7 +7,7 @@
 #>
 [CmdletBinding()]
 param(
-    [Parameter()]
+    [Parameter(Mandatory = $true)]
     [string]
     $Uri
 )
@@ -23,8 +23,14 @@ process {
         throw [System.ArgumentException]::new()
     }
     $entity = $body | ConvertFrom-Json -Depth 8 -AsHashtable
+    # keys from entity statement
+    $jwks = $entity["jwks"]
     # validate self-signed entity statement
-    $entity = ConvertFrom-Jws -InputObject $jwt -Jwks ($entity["jwks"] | ConvertTo-Json -Depth 8) -ErrorAction Stop | ConvertFrom-Json -Depth 8 -AsHashtable
+    $entity = ConvertFrom-Jws -InputObject $jwt -Jwks ($jwks | ConvertTo-Json -Depth 8) -ErrorAction Stop | ConvertFrom-Json -Depth 8 -AsHashtable
+    # select single jwk (for testing)
+    if ($false) {
+        $jwks = $entity["jwks"] | ConvertTo-Json | ConvertFrom-Jwks | Test-JwkHeader -KeyId "AhCznFrryZ-X0HGzC0JHOZ5nMg8" -PassThru | ConvertFrom-Json -AsHashtable
+    }
     # get file name from issuer
     $issuer = $entity["metadata"]["openid_provider"]["issuer"]
     $name = [System.Text.Encodings.Web.UrlEncoder]::Default.Encode(($issuer -replace "^http(s)?://", ""))
@@ -33,10 +39,10 @@ process {
     # generate provider file    
     $entity["metadata"]["openid_provider"] | ConvertTo-Json -Depth 8 | Out-File "$name.provider" -Encoding utf8NoBOM
     # generate conf file
-    [ordered] @{ "signed_jwks_uri_key" = $entity["jwks"] } | ConvertTo-Json -Depth 8 | Out-File "$name.conf" -Encoding utf8NoBOM
+    [ordered] @{ "signed_jwks_uri_key" = $jwks } | ConvertTo-Json -Depth 8 | Out-File "$name.conf" -Encoding utf8NoBOM
     # generate OIDCProviderSignedJwksUri.conf file
     $conf = @"
-OIDCProviderSignedJwksUri $($entity["metadata"]["openid_provider"]["signed_jwks_uri"] | ConvertTo-Json) $($entity["jwks"] | ConvertTo-Json -Compress -Depth 8 | ConvertTo-Json)
+OIDCProviderSignedJwksUri $($entity["metadata"]["openid_provider"]["signed_jwks_uri"] | ConvertTo-Json) $($jwks | ConvertTo-Json -Compress -Depth 8 | ConvertTo-Json)
 "@ 
     $conf | Out-File "OIDCProviderSignedJwksUri.conf" -Encoding ascii
 }

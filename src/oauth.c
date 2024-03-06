@@ -41,15 +41,18 @@
  * @Author: Hans Zandbelt - hans.zandbelt@openidc.com
  */
 
+#include "handle/handle.h"
+#include "metrics.h"
 #include "mod_auth_openidc.h"
+#include "parse.h"
 
 apr_byte_t oidc_oauth_metadata_provider_retrieve(request_rec *r, oidc_cfg *cfg, const char *issuer, const char *url,
 						 json_t **j_metadata, char **response) {
 
 	/* get provider metadata from the specified URL with the specified parameters */
-	if (oidc_util_http_get(r, url, NULL, NULL, NULL, cfg->oauth.ssl_validate_server, response,
-			       &cfg->http_timeout_short, &cfg->outgoing_proxy, oidc_dir_cfg_pass_cookies(r), NULL, NULL,
-			       NULL) == FALSE)
+	if (oidc_http_get(r, url, NULL, NULL, NULL, cfg->oauth.ssl_validate_server, response, NULL,
+			  &cfg->http_timeout_short, &cfg->outgoing_proxy, oidc_dir_cfg_pass_cookies(r), NULL, NULL,
+			  NULL) == FALSE)
 		return FALSE;
 
 	/* decode and see if it is not an error response somehow */
@@ -153,16 +156,15 @@ static apr_byte_t oidc_oauth_validate_access_token(request_rec *r, oidc_cfg *c, 
 
 	/* call the endpoint with the constructed parameter set and return the resulting response */
 	return _oidc_strcmp(c->oauth.introspection_endpoint_method, OIDC_INTROSPECTION_METHOD_GET) == 0
-		   ? oidc_util_http_get(
+		   ? oidc_http_get(r, c->oauth.introspection_endpoint_url, params, basic_auth, bearer_auth,
+				   c->oauth.ssl_validate_server, response, NULL, &c->http_timeout_long,
+				   &c->outgoing_proxy, oidc_dir_cfg_pass_cookies(r),
+				   oidc_util_get_full_path(r->pool, c->oauth.introspection_endpoint_tls_client_cert),
+				   oidc_util_get_full_path(r->pool, c->oauth.introspection_endpoint_tls_client_key),
+				   oidc_util_get_full_path(r->pool, c->oauth.introspection_endpoint_tls_client_key_pwd))
+		   : oidc_http_post_form(
 			 r, c->oauth.introspection_endpoint_url, params, basic_auth, bearer_auth,
-			 c->oauth.ssl_validate_server, response, &c->http_timeout_long, &c->outgoing_proxy,
-			 oidc_dir_cfg_pass_cookies(r),
-			 oidc_util_get_full_path(r->pool, c->oauth.introspection_endpoint_tls_client_cert),
-			 oidc_util_get_full_path(r->pool, c->oauth.introspection_endpoint_tls_client_key),
-			 oidc_util_get_full_path(r->pool, c->oauth.introspection_endpoint_tls_client_key_pwd))
-		   : oidc_util_http_post_form(
-			 r, c->oauth.introspection_endpoint_url, params, basic_auth, bearer_auth,
-			 c->oauth.ssl_validate_server, response, &c->http_timeout_long, &c->outgoing_proxy,
+			 c->oauth.ssl_validate_server, response, NULL, &c->http_timeout_long, &c->outgoing_proxy,
 			 oidc_dir_cfg_pass_cookies(r),
 			 oidc_util_get_full_path(r->pool, c->oauth.introspection_endpoint_tls_client_cert),
 			 oidc_util_get_full_path(r->pool, c->oauth.introspection_endpoint_tls_client_key),
@@ -188,7 +190,7 @@ apr_byte_t oidc_oauth_get_bearer_token(request_rec *r, const char **access_token
 	if ((accept_header) || (accept_token_in & OIDC_OAUTH_ACCEPT_TOKEN_IN_BASIC)) {
 
 		/* get the authorization header */
-		const char *auth_line = oidc_util_hdr_in_authorization_get(r);
+		const char *auth_line = oidc_http_hdr_in_authorization_get(r);
 		if (auth_line) {
 			oidc_debug(r, "authorization header found");
 
@@ -235,19 +237,19 @@ apr_byte_t oidc_oauth_get_bearer_token(request_rec *r, const char **access_token
 	if ((*access_token == NULL) && (r->method_number == M_POST) &&
 	    (accept_token_in & OIDC_OAUTH_ACCEPT_TOKEN_IN_POST)) {
 		apr_table_t *params = apr_table_make(r->pool, 8);
-		if (oidc_util_read_post_params(r, params, TRUE, OIDC_PROTO_ACCESS_TOKEN) == TRUE) {
+		if (oidc_http_read_post_params(r, params, TRUE, OIDC_PROTO_ACCESS_TOKEN) == TRUE) {
 			*access_token = apr_table_get(params, OIDC_PROTO_ACCESS_TOKEN);
 		}
 	}
 
 	if ((*access_token == NULL) && (accept_token_in & OIDC_OAUTH_ACCEPT_TOKEN_IN_QUERY)) {
 		apr_table_t *params = apr_table_make(r->pool, 8);
-		oidc_util_read_form_encoded_params(r, params, r->args);
+		oidc_http_read_form_encoded_params(r, params, r->args);
 		*access_token = apr_table_get(params, OIDC_PROTO_ACCESS_TOKEN);
 	}
 
 	if ((*access_token == NULL) && (accept_token_in & OIDC_OAUTH_ACCEPT_TOKEN_IN_COOKIE)) {
-		const char *auth_line = oidc_util_get_cookie(r, cookie_name);
+		const char *auth_line = oidc_http_get_cookie(r, cookie_name);
 		if (auth_line != NULL) {
 
 			/* copy the result in to the access_token */
@@ -603,7 +605,7 @@ int oidc_oauth_return_www_authenticate(request_rec *r, const char *error, const 
 		    apr_psprintf(r->pool, "%s%s %s=\"%s\"", hdr, (ap_auth_name(r) ? "," : ""), OIDC_PROTO_ERROR, error);
 	if (error_description != NULL)
 		hdr = apr_psprintf(r->pool, "%s, %s=\"%s\"", hdr, OIDC_PROTO_ERROR_DESCRIPTION, error_description);
-	oidc_util_hdr_err_out_add(r, OIDC_HTTP_HDR_WWW_AUTHENTICATE, hdr);
+	oidc_http_hdr_err_out_add(r, OIDC_HTTP_HDR_WWW_AUTHENTICATE, hdr);
 	return HTTP_UNAUTHORIZED;
 }
 
@@ -660,15 +662,24 @@ int oidc_oauth_check_userid(request_rec *r, oidc_cfg *c, const char *access_toke
 	} else if (oidc_util_request_matches_url(r, oidc_get_redirect_uri(r, c))) {
 
 		/* check if this is a request for the public (encryption) keys */
-		if (oidc_util_request_has_parameter(r, OIDC_REDIRECT_URI_REQUEST_JWKS)) {
+		if (oidc_http_request_has_parameter(r, OIDC_REDIRECT_URI_REQUEST_JWKS)) {
 
-			return oidc_handle_jwks(r, c);
+			OIDC_METRICS_COUNTER_INC(r, c, OM_REDIRECT_URI_REQUEST_JWKS);
+
+			/*
+			 * Will be handled in the content handler; avoid:
+			 * No authentication done but request not allowed without authentication
+			 * by setting r->user
+			 */
+			r->user = "";
+
+			return OK;
 
 			/* check if this is a request to remove the access token from the cache */
-		} else if (oidc_util_request_has_parameter(r, OIDC_REDIRECT_URI_REQUEST_REMOVE_AT_CACHE)) {
+		} else if (oidc_http_request_has_parameter(r, OIDC_REDIRECT_URI_REQUEST_REMOVE_AT_CACHE)) {
 
 			/* handle request to invalidate access token cache */
-			return oidc_handle_remove_at_cache(r, c);
+			return oidc_revoke_at_cache_remove(r, c);
 		}
 	}
 
@@ -739,7 +750,7 @@ int oidc_oauth_check_userid(request_rec *r, oidc_cfg *c, const char *access_toke
 	int pass_hdr_as = oidc_cfg_dir_pass_info_encoding(r);
 
 	if ((r->user != NULL) && (authn_header != NULL))
-		oidc_util_hdr_in_set(r, authn_header, r->user);
+		oidc_http_hdr_in_set(r, authn_header, r->user);
 
 	/* set the resolved claims in the HTTP headers for the target application */
 	oidc_util_set_app_infos(r, token, oidc_cfg_claim_prefix(r), c->claim_delimiter, pass_headers, pass_envvars,

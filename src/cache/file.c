@@ -76,7 +76,7 @@ int oidc_cache_file_post_config(server_rec *s) {
  * return the cache file name for a specified key
  */
 static const char *oidc_cache_file_name(request_rec *r, const char *section, const char *key) {
-	return apr_psprintf(r->pool, "%s%s-%s", OIDC_CACHE_FILE_PREFIX, section, oidc_util_escape_string(r, key));
+	return apr_psprintf(r->pool, "%s%s-%s", OIDC_CACHE_FILE_PREFIX, section, oidc_http_escape_string(r, key));
 }
 
 /*
@@ -299,7 +299,8 @@ static apr_status_t oidc_cache_file_clean(request_rec *r) {
 		if (i == APR_SUCCESS) {
 
 			/* skip non-cache entries, cq. the ".", ".." and the metadata file */
-			if ((fi.name[0] == OIDC_CHAR_DOT) || (strstr(fi.name, OIDC_CACHE_FILE_PREFIX) != fi.name) ||
+			if ((fi.name[0] == OIDC_CHAR_DOT) ||
+			    (_oidc_strstr(fi.name, OIDC_CACHE_FILE_PREFIX) != fi.name) ||
 			    ((_oidc_strcmp(fi.name,
 					   oidc_cache_file_name(r, "cache-file", OIDC_CACHE_FILE_LAST_CLEANED)) == 0)))
 				continue;

@@ -43,8 +43,6 @@
  * @Author: Hans Zandbelt - hans.zandbelt@openidc.com
  */
 
-#include <curl/curl.h>
-
 #include "mod_auth_openidc.h"
 
 /*
@@ -139,9 +137,11 @@ const char *oidc_valid_cookie_domain(apr_pool_t *pool, const char *arg) {
  * parse an integer value from a string
  */
 const char *oidc_parse_int(apr_pool_t *pool, const char *arg, int *int_value) {
-	if (*arg == '\0')
+	int v = -1;
+	if ((arg == NULL) || (*arg == '\0') || (_oidc_strcmp(arg, "") == 0))
+		return apr_psprintf(pool, "no integer value");
+	if (sscanf(arg, "%d", &v) != 1)
 		return apr_psprintf(pool, "invalid integer value: %s", arg);
-	int v = _oidc_str_to_int(arg);
 	*int_value = v;
 	return NULL;
 }
@@ -299,7 +299,7 @@ const char *oidc_parse_session_type(apr_pool_t *pool, const char *arg, int *type
 		return rv;
 
 	char *s = apr_pstrdup(pool, arg);
-	char *p = strstr(s, OIDC_SESSION_TYPE_SEPARATOR);
+	char *p = _oidc_strstr(s, OIDC_SESSION_TYPE_SEPARATOR);
 
 	if (p) {
 		*p = '\0';
@@ -597,19 +597,19 @@ const char *oidc_parse_use_enc_kid_key_tuple(apr_pool_t *pool, const char *tuple
 		return "tuple value not set";
 
 	if (use) {
-		if (strstr(tuple, OIDC_KEY_SIG_PREFIX) == tuple) {
+		if (_oidc_strstr(tuple, OIDC_KEY_SIG_PREFIX) == tuple) {
 			*use = OIDC_JOSE_JWK_SIG_STR;
-			tuple += strlen(OIDC_KEY_SIG_PREFIX);
-		} else if (strstr(tuple, OIDC_KEY_ENC_PREFIX) == tuple) {
+			tuple += _oidc_strlen(OIDC_KEY_SIG_PREFIX);
+		} else if (_oidc_strstr(tuple, OIDC_KEY_ENC_PREFIX) == tuple) {
 			*use = OIDC_JOSE_JWK_ENC_STR;
-			tuple += strlen(OIDC_KEY_ENC_PREFIX);
+			tuple += _oidc_strlen(OIDC_KEY_ENC_PREFIX);
 		}
 	}
 
 	s = apr_pstrdup(pool, tuple);
-	p = strstr(s, OIDC_KEY_TUPLE_SEPARATOR);
+	p = _oidc_strstr(s, OIDC_KEY_TUPLE_SEPARATOR);
 	if (p && triplet)
-		q = strstr(p + 1, OIDC_KEY_TUPLE_SEPARATOR);
+		q = _oidc_strstr(p + 1, OIDC_KEY_TUPLE_SEPARATOR);
 
 	if (p) {
 		if (q) {
@@ -711,7 +711,7 @@ const char *oidc_parse_pass_userinfo_as(apr_pool_t *pool, const char *v, oidc_pa
 				  OIDC_PASS_USERINFO_AS_JWT_STR, OIDC_PASS_USERINFO_AS_SIGNED_JWT_STR, NULL};
 	const char *rv = NULL;
 
-	char *name = strstr(v, ":");
+	char *name = _oidc_strstr(v, ":");
 	if (name) {
 		*name = '\0';
 		name++;
@@ -802,9 +802,9 @@ static apr_byte_t oidc_parse_oauth_accept_token_in_str2byte(const char *v) {
 		return OIDC_OAUTH_ACCEPT_TOKEN_IN_POST;
 	if (_oidc_strcmp(v, OIDC_OAUTH_ACCEPT_TOKEN_IN_QUERY_STR) == 0)
 		return OIDC_OAUTH_ACCEPT_TOKEN_IN_QUERY;
-	if (strstr(v, OIDC_OAUTH_ACCEPT_TOKEN_IN_COOKIE_STR) == v)
+	if (_oidc_strstr(v, OIDC_OAUTH_ACCEPT_TOKEN_IN_COOKIE_STR) == v)
 		return OIDC_OAUTH_ACCEPT_TOKEN_IN_COOKIE;
-	if (strstr(v, OIDC_OAUTH_ACCEPT_TOKEN_IN_BASIC_STR) == v)
+	if (_oidc_strstr(v, OIDC_OAUTH_ACCEPT_TOKEN_IN_BASIC_STR) == v)
 		return OIDC_OAUTH_ACCEPT_TOKEN_IN_BASIC;
 	return OIDC_OAUTH_ACCEPT_TOKEN_IN_DEFAULT;
 }
@@ -823,7 +823,7 @@ const char *oidc_parse_accept_oauth_token_in(apr_pool_t *pool, const char *arg, 
 	const char *rv = NULL;
 
 	const char *s = apr_pstrdup(pool, arg);
-	char *p = strstr(s, OIDC_OAUTH_ACCEPT_TOKEN_IN_COOKIE_SEPARATOR);
+	char *p = _oidc_strstr(s, OIDC_OAUTH_ACCEPT_TOKEN_IN_COOKIE_SEPARATOR);
 
 	if (p != NULL) {
 		*p = '\0';
@@ -1249,41 +1249,11 @@ const char *oidc_parse_x_forwarded_headers(apr_pool_t *pool, const char *arg, ap
 	return NULL;
 }
 
-#define OIDC_PROXY_AUTH_BASIC "basic"
-#define OIDC_PROXY_AUTH_DIGEST "digest"
-#define OIDC_PROXY_AUTH_NTLM "ntlm"
-#define OIDC_PROXY_AUTH_ANY "any"
-#ifdef CURLAUTH_NEGOTIATE
-#define OIDC_PROXY_AUTH_NEGOTIATE "negotiate"
-#endif
-
 const char *oidc_parse_outgoing_proxy_auth_type(apr_pool_t *pool, const char *arg, unsigned long *auth_type) {
-	static char *options[] = {OIDC_PROXY_AUTH_BASIC,
-				  OIDC_PROXY_AUTH_DIGEST,
-				  OIDC_PROXY_AUTH_NTLM,
-				  OIDC_PROXY_AUTH_ANY,
-#ifdef CURLAUTH_NEGOTIATE
-				  OIDC_PROXY_AUTH_NEGOTIATE,
-#endif
-				  NULL};
-	const char *rv = oidc_valid_string_option(pool, arg, options);
+	const char *rv = oidc_valid_string_option(pool, arg, oidc_http_proxy_auth_options());
 	if (rv != NULL)
 		return rv;
-
-	if (_oidc_strcmp(arg, OIDC_PROXY_AUTH_BASIC) == 0) {
-		*auth_type = CURLAUTH_BASIC;
-	} else if (_oidc_strcmp(arg, OIDC_PROXY_AUTH_DIGEST) == 0) {
-		*auth_type = CURLAUTH_DIGEST;
-	} else if (_oidc_strcmp(arg, OIDC_PROXY_AUTH_NTLM) == 0) {
-		*auth_type = CURLAUTH_NTLM;
-	} else if (_oidc_strcmp(arg, OIDC_PROXY_AUTH_ANY) == 0) {
-		*auth_type = CURLAUTH_ANY;
-#ifdef CURLAUTH_NEGOTIATE
-	} else if (_oidc_strcmp(arg, OIDC_PROXY_AUTH_NEGOTIATE) == 0) {
-		*auth_type = CURLAUTH_NEGOTIATE;
-#endif
-	}
-
+	*auth_type = oidc_http_proxy_s2auth(arg);
 	return NULL;
 }
 

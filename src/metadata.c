@@ -125,11 +125,11 @@ extern module AP_MODULE_DECLARE_DATA auth_openidc_module;
 static const char *oidc_metadata_issuer_to_filename(request_rec *r, const char *issuer) {
 
 	/* strip leading https:// */
-	char *p = strstr(issuer, "https://");
+	char *p = _oidc_strstr(issuer, "https://");
 	if (p == issuer) {
 		p = apr_pstrdup(r->pool, issuer + _oidc_strlen("https://"));
 	} else {
-		p = strstr(issuer, "http://");
+		p = _oidc_strstr(issuer, "http://");
 		if (p == issuer) {
 			p = apr_pstrdup(r->pool, issuer + _oidc_strlen("http://"));
 		} else {
@@ -142,7 +142,7 @@ static const char *oidc_metadata_issuer_to_filename(request_rec *r, const char *
 	if (p[n - 1] == OIDC_CHAR_FORWARD_SLASH)
 		p[n - 1] = '\0';
 
-	return oidc_util_escape_string(r, p);
+	return oidc_http_escape_string(r, p);
 }
 
 /*
@@ -152,7 +152,7 @@ static const char *oidc_metadata_filename_to_issuer(request_rec *r, const char *
 	char *result = apr_pstrdup(r->pool, filename);
 	char *p = strrchr(result, OIDC_CHAR_DOT);
 	*p = '\0';
-	p = oidc_util_unescape_string(r, result);
+	p = oidc_http_unescape_string(r, result);
 	return apr_psprintf(r->pool, "https://%s", p);
 }
 
@@ -544,9 +544,9 @@ static apr_byte_t oidc_metadata_client_register(request_rec *r, oidc_cfg *cfg, o
 	}
 
 	/* dynamically register the client with the specified parameters */
-	if (oidc_util_http_post_json(r, provider->registration_endpoint_url, data, NULL, provider->registration_token,
-				     provider->ssl_validate_server, response, &cfg->http_timeout_short,
-				     &cfg->outgoing_proxy, oidc_dir_cfg_pass_cookies(r), NULL, NULL, NULL) == FALSE) {
+	if (oidc_http_post_json(r, provider->registration_endpoint_url, data, NULL, provider->registration_token,
+				provider->ssl_validate_server, response, NULL, &cfg->http_timeout_short,
+				&cfg->outgoing_proxy, oidc_dir_cfg_pass_cookies(r), NULL, NULL, NULL) == FALSE) {
 		json_decref(data);
 		return FALSE;
 	}
@@ -571,8 +571,8 @@ static apr_byte_t oidc_metadata_jwks_retrieve_and_cache(request_rec *r, oidc_cfg
 	const char *url = (jwks_uri->signed_uri != NULL) ? jwks_uri->signed_uri : jwks_uri->uri;
 
 	/* get the JWKs from the specified URL with the specified parameters */
-	if (oidc_util_http_get(r, url, NULL, NULL, NULL, ssl_validate_server, &response, &cfg->http_timeout_long,
-			       &cfg->outgoing_proxy, oidc_dir_cfg_pass_cookies(r), NULL, NULL, NULL) == FALSE)
+	if (oidc_http_get(r, url, NULL, NULL, NULL, ssl_validate_server, &response, NULL, &cfg->http_timeout_long,
+			  &cfg->outgoing_proxy, oidc_dir_cfg_pass_cookies(r), NULL, NULL, NULL) == FALSE)
 		return FALSE;
 
 	if ((jwks_uri->signed_uri != NULL) && (jwks_uri->jwk != NULL)) {
@@ -668,9 +668,9 @@ apr_byte_t oidc_metadata_provider_retrieve(request_rec *r, oidc_cfg *cfg, const 
 	OIDC_METRICS_TIMING_START(r, cfg);
 
 	/* get provider metadata from the specified URL with the specified parameters */
-	if (oidc_util_http_get(r, url, NULL, NULL, NULL, cfg->provider.ssl_validate_server, response,
-			       &cfg->http_timeout_short, &cfg->outgoing_proxy, oidc_dir_cfg_pass_cookies(r), NULL, NULL,
-			       NULL) == FALSE) {
+	if (oidc_http_get(r, url, NULL, NULL, NULL, cfg->provider.ssl_validate_server, response, NULL,
+			  &cfg->http_timeout_short, &cfg->outgoing_proxy, oidc_dir_cfg_pass_cookies(r), NULL, NULL,
+			  NULL) == FALSE) {
 		OIDC_METRICS_COUNTER_INC(r, cfg, OM_PROVIDER_METADATA_ERROR);
 		return FALSE;
 	}
@@ -740,10 +740,11 @@ apr_byte_t oidc_metadata_provider_get(request_rec *r, oidc_cfg *cfg, const char 
 	}
 
 	/* assemble the URL to the .well-known OpenID metadata */
-	const char *url = apr_psprintf(r->pool, "%s",
-				       ((strstr(issuer, "http://") == issuer) || (strstr(issuer, "https://") == issuer))
-					   ? issuer
-					   : apr_psprintf(r->pool, "https://%s", issuer));
+	const char *url =
+	    apr_psprintf(r->pool, "%s",
+			 ((_oidc_strstr(issuer, "http://") == issuer) || (_oidc_strstr(issuer, "https://") == issuer))
+			     ? issuer
+			     : apr_psprintf(r->pool, "https://%s", issuer));
 	url =
 	    apr_psprintf(r->pool, "%s%s.well-known/openid-configuration", url,
 			 (url && url[_oidc_strlen(url) - 1] != OIDC_CHAR_FORWARD_SLASH) ? OIDC_STR_FORWARD_SLASH : "");

@@ -43,6 +43,8 @@
 #ifndef MOD_AUTH_OPENIDC_METRICS_H_
 #define MOD_AUTH_OPENIDC_METRICS_H_
 
+#include <apr_hash.h>
+
 apr_byte_t oidc_metrics_is_valid_classname(apr_pool_t *pool, const char *name, char **valid_names);
 apr_byte_t oidc_metrics_cache_post_config(server_rec *s);
 apr_status_t oidc_metrics_cache_child_init(apr_pool_t *p, server_rec *s);
@@ -104,12 +106,14 @@ void oidc_metrics_timing_add(request_rec *r, oidc_metrics_timing_type_t type, ap
 
 #define OIDC_METRICS_TIMING_REQUEST_ADD(r, cfg, type)                                                                  \
 	OIDC_METRICS_TIMING_VAR                                                                                        \
-	const char *v = NULL;                                                                                          \
 	if (cfg->metrics_hook_data != NULL) {                                                                          \
-		v = oidc_request_state_get(r, OIDC_METRICS_REQUEST_STATE_TIMER_KEY);                                   \
-		if (v) {                                                                                               \
-			sscanf(v, "%" APR_TIME_T_FMT, &_oidc_metrics_tstart);                                          \
+		_oidc_metrics_tstart =                                                                                 \
+		    _oidc_str_to_time(oidc_request_state_get(r, OIDC_METRICS_REQUEST_STATE_TIMER_KEY), -1);            \
+		if (_oidc_metrics_tstart > -1) {                                                                       \
 			OIDC_METRICS_TIMING_ADD(r, cfg, type);                                                         \
+		} else {                                                                                               \
+			oidc_warn(r,                                                                                   \
+				  "metrics: could not add timing because start timer was not found in request state"); \
 		}                                                                                                      \
 	}
 

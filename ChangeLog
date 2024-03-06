@@ -1,3 +1,35 @@
+04/02/2024
+- refactor integer and timestamp handling
+- fix default HTTP short retry interval setting
+- accept 0 in OIDCUserInfoRefreshInterval
+- userinfo refresh: don't try to refresh the access token and retry when a connectivity error has occurred
+- logout: don't try to revoke tokens on post-access-token-refresh or post-userinfo-refresh-errors logouts
+
+03/01/2024
+- accept strings as well as integers in the "expires_in" claim from the token endpoint
+- fix for "expires_in" string values returned from the token endpoint that would be interpreted as 0
+  this fixes using OIDCRefreshAccessTokenBeforeExpiry or OIDCUserInfoRefreshInterval with (older)
+  Azure AD configs that would result in a token refresh on every request since 2.4.15 or a 401 in 2.4.14.4
+- fix setting the "exp" claim in userinfo signed JWTs (exp would be now+0) when no expires_in is returned
+  by the OP
+- fix signed JWT caching when ttl set to 0 or "" which should apply the exp claim as the cache ttl
+
+02/29/2024
+- hash the cache key if it is larger than 512 bytes so large cache key entries (i.e. for JWT tokens)
+  are no longer a problem in unencrypted SHM cache configs, i.e. the default shared memory cache setup;
+  see issues/discussions on "could not construct cache key since key size is too large"
+  this is relevant for OAuth 2.0 RS configs with JWT access tokens and OpenID Connect RP
+  configs where OIDCRefreshAccessTokenBeforeExpiry/OIDCUserInfoRefreshInterval is set and
+  a JWT refresh token is returned
+- fix debug printout of cache key in oidc_cache_get
+
+02/28/2024
+- optimize performance by skipping JSON processing when `OIDCPassClaimsAs none` is set
+
+02/25/2024
+- implement oidc_util_apr_hash_clear so clearing hashtables works with older versions of libapr 
+- refactor/extract HTTP functions
+
 02/22/2024
 - enable TCP keepalive on Redis connections by default
   and make it configurable in `OIDCRedisCacheConnectTimeout <connect-timeout> [0|<keep-alive-interval>]`

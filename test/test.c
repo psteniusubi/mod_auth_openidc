@@ -42,6 +42,7 @@
  *
  **************************************************************************/
 
+#include "handle/handle.h"
 #include "mod_auth_openidc.h"
 
 #include <openssl/evp.h>
@@ -1240,7 +1241,7 @@ static char *test_logout_request(request_rec *r) {
 
 	r->args = "logout=https%3A%2F%2Fwww.example.com%2Floggedout";
 
-	TST_ASSERT("oidc_handle_logout (1)", oidc_handle_logout(r, c, session) == HTTP_MOVED_TEMPORARILY);
+	TST_ASSERT("oidc_handle_logout (1)", oidc_logout(r, c, session) == HTTP_MOVED_TEMPORARILY);
 	TST_ASSERT_STR(
 	    "oidc_handle_logout (2)", apr_table_get(r->headers_out, "Location"),
 	    "https://idp.example.com/"
@@ -1464,51 +1465,51 @@ static char *test_accept(request_rec *r) {
 
 	// ie 9/10/11
 	apr_table_set(r->headers_in, "Accept", "text/html, application/xhtml+xml, */*");
-	TST_ASSERT("Accept: text/html (ie 9/10/11)", oidc_util_hdr_in_accept_contains(r, "text/html") != 0);
+	TST_ASSERT("Accept: text/html (ie 9/10/11)", oidc_http_hdr_in_accept_contains(r, "text/html") != 0);
 	TST_ASSERT("Accept: application/json (ie 9/10/11)",
-		   oidc_util_hdr_in_accept_contains(r, "application/json") == 0);
+		   oidc_http_hdr_in_accept_contains(r, "application/json") == 0);
 
 	// firefox
 	apr_table_set(r->headers_in, "Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
-	TST_ASSERT("Accept: text/html (firefox)", oidc_util_hdr_in_accept_contains(r, "text/html") != 0);
-	TST_ASSERT("Accept: application/json (firefox)", oidc_util_hdr_in_accept_contains(r, "application/json") == 0);
+	TST_ASSERT("Accept: text/html (firefox)", oidc_http_hdr_in_accept_contains(r, "text/html") != 0);
+	TST_ASSERT("Accept: application/json (firefox)", oidc_http_hdr_in_accept_contains(r, "application/json") == 0);
 
 	// chrome/safari
 	apr_table_set(r->headers_in, "Accept",
 		      "application/xml,application/xhtml+xml,text/html;q=0.9, text/plain;q=0.8,image/png,*/*;q=0.5");
-	TST_ASSERT("Accept: text/html (chrome/safari)", oidc_util_hdr_in_accept_contains(r, "text/html") != 0);
+	TST_ASSERT("Accept: text/html (chrome/safari)", oidc_http_hdr_in_accept_contains(r, "text/html") != 0);
 	TST_ASSERT("Accept: application/json (chrome/safari)",
-		   oidc_util_hdr_in_accept_contains(r, "application/json") == 0);
+		   oidc_http_hdr_in_accept_contains(r, "application/json") == 0);
 
 	// safari 5
 	apr_table_set(r->headers_in, "Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
-	TST_ASSERT("Accept: text/html (safari 5)", oidc_util_hdr_in_accept_contains(r, "text/html") != 0);
-	TST_ASSERT("Accept: application/json (safari 5)", oidc_util_hdr_in_accept_contains(r, "application/json") == 0);
+	TST_ASSERT("Accept: text/html (safari 5)", oidc_http_hdr_in_accept_contains(r, "text/html") != 0);
+	TST_ASSERT("Accept: application/json (safari 5)", oidc_http_hdr_in_accept_contains(r, "application/json") == 0);
 
 	// ie 8
 	apr_table_set(r->headers_in, "Accept",
 		      "image/jpeg, application/x-ms-application, image/gif, application/xaml+xml, image/pjpeg, "
 		      "application/x-ms-xbap, application/x-shockwave-flash, application/msword, */*");
-	TST_ASSERT("Accept: text/html (ie 8)", oidc_util_hdr_in_accept_contains(r, "text/html") == 0);
-	TST_ASSERT("Accept: */* (ie 8)", oidc_util_hdr_in_accept_contains(r, "*/*") != 0);
-	TST_ASSERT("Accept: application/json (ie 8)", oidc_util_hdr_in_accept_contains(r, "application/json") == 0);
+	TST_ASSERT("Accept: text/html (ie 8)", oidc_http_hdr_in_accept_contains(r, "text/html") == 0);
+	TST_ASSERT("Accept: */* (ie 8)", oidc_http_hdr_in_accept_contains(r, "*/*") != 0);
+	TST_ASSERT("Accept: application/json (ie 8)", oidc_http_hdr_in_accept_contains(r, "application/json") == 0);
 
 	// edge
 	apr_table_set(r->headers_in, "Accept", "text/html, application/xhtml+xml, image/jxr, */*");
-	TST_ASSERT("Accept: text/html (edge)", oidc_util_hdr_in_accept_contains(r, "text/html") != 0);
-	TST_ASSERT("Accept: application/json (edge)", oidc_util_hdr_in_accept_contains(r, "application/json") == 0);
+	TST_ASSERT("Accept: text/html (edge)", oidc_http_hdr_in_accept_contains(r, "text/html") != 0);
+	TST_ASSERT("Accept: application/json (edge)", oidc_http_hdr_in_accept_contains(r, "application/json") == 0);
 
 	// opera
 	apr_table_set(r->headers_in, "Accept",
 		      "text/html, application/xml;q=0.9, application/xhtml+xml, image/png, image/webp, image/jpeg, "
 		      "image/gif, image/x-xbitmap, */*;q=0.1");
-	TST_ASSERT("Accept: text/html (opera)", oidc_util_hdr_in_accept_contains(r, "text/html") != 0);
-	TST_ASSERT("Accept: application/json (opera)", oidc_util_hdr_in_accept_contains(r, "application/json") == 0);
+	TST_ASSERT("Accept: text/html (opera)", oidc_http_hdr_in_accept_contains(r, "text/html") != 0);
+	TST_ASSERT("Accept: application/json (opera)", oidc_http_hdr_in_accept_contains(r, "application/json") == 0);
 
 	// xmlhttprequest
 	apr_table_set(r->headers_in, "Accept", "application/json");
-	TST_ASSERT("Accept: text/html (opera)", oidc_util_hdr_in_accept_contains(r, "text/html") == 0);
-	TST_ASSERT("Accept: application/json (opera)", oidc_util_hdr_in_accept_contains(r, "application/json") != 0);
+	TST_ASSERT("Accept: text/html (opera)", oidc_http_hdr_in_accept_contains(r, "text/html") == 0);
+	TST_ASSERT("Accept: application/json (opera)", oidc_http_hdr_in_accept_contains(r, "application/json") != 0);
 
 	return 0;
 }
@@ -1577,92 +1578,92 @@ static char *test_authz_worker(request_rec *r) {
 
 	require_args = "Require claim sub:hans";
 	parsed_require_args->filename = require_args;
-	rc = oidc_authz_worker24(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
+	rc = oidc_authz_24_worker(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
 	TST_ASSERT("auth status (1: simple sub claim)", rc == AUTHZ_DENIED);
 
 	require_args = "Require claim sub:stef";
 	parsed_require_args->filename = require_args;
-	rc = oidc_authz_worker24(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
+	rc = oidc_authz_24_worker(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
 	TST_ASSERT("auth status (2: simple sub claim)", rc == AUTHZ_GRANTED);
 
 	require_args = "Require claim nested.level1.level2:hans";
 	parsed_require_args->filename = require_args;
-	rc = oidc_authz_worker24(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
+	rc = oidc_authz_24_worker(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
 	TST_ASSERT("auth status (3: nested claim)", rc == AUTHZ_GRANTED);
 
 	require_args = "Require claim nested.nestedarray:a";
 	parsed_require_args->filename = require_args;
-	rc = oidc_authz_worker24(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
+	rc = oidc_authz_24_worker(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
 	TST_ASSERT("auth status (4: nested array)", rc == AUTHZ_DENIED);
 
 	require_args = "Require claim nested.nestedarray:c";
 	parsed_require_args->filename = require_args;
-	rc = oidc_authz_worker24(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
+	rc = oidc_authz_24_worker(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
 	TST_ASSERT("auth status (5: nested array)", rc == AUTHZ_GRANTED);
 
 	require_args = "Require claim nested.level1:a";
 	parsed_require_args->filename = require_args;
-	rc = oidc_authz_worker24(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
+	rc = oidc_authz_24_worker(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
 	TST_ASSERT("auth status (6: nested non-string)", rc == AUTHZ_DENIED);
 
 	require_args = "Require claim somebool:a";
 	parsed_require_args->filename = require_args;
-	rc = oidc_authz_worker24(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
+	rc = oidc_authz_24_worker(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
 	TST_ASSERT("auth status (7: non-array)", rc == AUTHZ_DENIED);
 
 	require_args = "Require claim somebool.level1:a";
 	parsed_require_args->filename = require_args;
-	rc = oidc_authz_worker24(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
+	rc = oidc_authz_24_worker(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
 	TST_ASSERT("auth status (8: nested non-array)", rc == AUTHZ_DENIED);
 
 	require_args = "Require claim realm_access.roles:someRole1";
 	parsed_require_args->filename = require_args;
-	rc = oidc_authz_worker24(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
+	rc = oidc_authz_24_worker(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
 	TST_ASSERT("auth status (9: keycloak sample 1)", rc == AUTHZ_GRANTED);
 
 	require_args = "Require claim resource_access.someClient.roles:someRole4";
 	parsed_require_args->filename = require_args;
-	rc = oidc_authz_worker24(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
+	rc = oidc_authz_24_worker(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
 	TST_ASSERT("auth status (10: keycloak sample 2)", rc == AUTHZ_GRANTED);
 
 	require_args = "Require claim https://test.com/pay:alot";
 	parsed_require_args->filename = require_args;
-	rc = oidc_authz_worker24(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
+	rc = oidc_authz_24_worker(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
 	TST_ASSERT("auth status (11: namespaced key)", rc == AUTHZ_GRANTED);
 
 	require_args = "Require claim nested.level1.level2~.an.";
 	parsed_require_args->filename = require_args;
-	rc = oidc_authz_worker24(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
+	rc = oidc_authz_24_worker(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
 	TST_ASSERT("auth status (12: nested expression)", rc == AUTHZ_GRANTED);
 
 	require_args = "Require claim nested.level1.level2~zan.";
 	parsed_require_args->filename = require_args;
-	rc = oidc_authz_worker24(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
+	rc = oidc_authz_24_worker(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
 	TST_ASSERT("auth status (13: nested expression)", rc == AUTHZ_DENIED);
 
 	require_args = "Require claim nested.nestedarray~.";
 	parsed_require_args->filename = require_args;
-	rc = oidc_authz_worker24(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
+	rc = oidc_authz_24_worker(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
 	TST_ASSERT("auth status (14: nested array expression)", rc == AUTHZ_GRANTED);
 
 	require_args = "Require claim nested.nestedarray~.b";
 	parsed_require_args->filename = require_args;
-	rc = oidc_authz_worker24(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
+	rc = oidc_authz_24_worker(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
 	TST_ASSERT("auth status (15: nested array expression)", rc == AUTHZ_DENIED);
 
 	require_args = "Require claim email~...$";
 	parsed_require_args->filename = require_args;
-	rc = oidc_authz_worker24(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
+	rc = oidc_authz_24_worker(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
 	TST_ASSERT("auth status (16: expression)", rc == AUTHZ_DENIED);
 
 	require_args = "Require claim sub~...$";
 	parsed_require_args->filename = require_args;
-	rc = oidc_authz_worker24(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
+	rc = oidc_authz_24_worker(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
 	TST_ASSERT("auth status (17: expression)", rc == AUTHZ_GRANTED);
 
 	require_args = "Require claim https://company.com/productAccess:snake2";
 	parsed_require_args->filename = require_args;
-	rc = oidc_authz_worker24(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
+	rc = oidc_authz_24_worker(r, json, require_args, parsed_require_args, oidc_authz_match_claim);
 	TST_ASSERT("auth status (18: key in namespaced array)", rc == AUTHZ_GRANTED);
 
 	json_decref(json);

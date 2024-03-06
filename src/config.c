@@ -41,14 +41,9 @@
  * @Author: Hans Zandbelt - hans.zandbelt@openidc.com
  */
 
-// clang-format off
-
-#include "mod_auth_openidc.h"
+#include "handle/handle.h"
 #include "metrics.h"
-
-// clang-format on
-
-#include <curl/curl.h>
+#include "mod_auth_openidc.h"
 
 #define OPENSSL_THREAD_DEFINES
 #include <openssl/err.h>
@@ -94,7 +89,7 @@
 /* nr of retries for HTTP calls that should take a short time */
 #define OIDC_DEFAULT_HTTP_RETRIES_SHORT 1
 /* retry interval in milliseconds for HTTP calls that should take a short time */
-#define OIDC_DEFAULT_HTTP_RETRY_INTERVAL_SHORT 500
+#define OIDC_DEFAULT_HTTP_RETRY_INTERVAL_SHORT 300
 /* default session storage type */
 #define OIDC_DEFAULT_SESSION_TYPE OIDC_SESSION_TYPE_SERVER_CACHE
 /* default client-cookie chunking size */
@@ -138,7 +133,7 @@
 /* default OAuth 2.0 non-spec compliant introspection expiry claim required */
 #define OIDC_DEFAULT_OAUTH_EXPIRY_CLAIM_REQUIRED TRUE
 /* default refresh interval in seconds after which claims from the user info endpoint should be refreshed */
-#define OIDC_DEFAULT_USERINFO_REFRESH_INTERVAL 0
+#define OIDC_DEFAULT_USERINFO_REFRESH_INTERVAL -1
 /* default for preserving POST parameters across authentication requests */
 #define OIDC_DEFAULT_PRESERVE_POST 0
 /* default for passing the access token in a header/environment variable */
@@ -366,18 +361,18 @@ static const char *oidc_set_http_timeout_slot(cmd_parms *cmd, void *struct_ptr, 
 	int offset = (int)(long)cmd->info;
 	oidc_http_timeout_t *http_timeout = (oidc_http_timeout_t *)((char *)cfg + offset);
 	if (arg1)
-		http_timeout->request_timeout = _oidc_str_to_int(arg1);
+		http_timeout->request_timeout = _oidc_str_to_int(arg1, http_timeout->request_timeout);
 	if (arg2)
-		http_timeout->connect_timeout = _oidc_str_to_int(arg2);
+		http_timeout->connect_timeout = _oidc_str_to_int(arg2, http_timeout->connect_timeout);
 	if (arg3) {
 		s = apr_pstrdup(cmd->pool, arg3);
-		p = strstr(s, OIDC_STR_COLON);
+		p = _oidc_strstr(s, OIDC_STR_COLON);
 		if (p) {
 			*p = '\0';
 			p++;
-			http_timeout->retry_interval = apr_time_from_msec(_oidc_str_to_int(p));
+			http_timeout->retry_interval = _oidc_str_to_int(p, http_timeout->retry_interval);
 		}
-		http_timeout->retries = _oidc_str_to_int(s);
+		http_timeout->retries = _oidc_str_to_int(s, http_timeout->retries);
 	}
 	return NULL;
 }
@@ -1282,13 +1277,13 @@ static void oidc_check_x_forwarded_hdr(request_rec *r, const apr_byte_t x_forwar
 
 void oidc_config_check_x_forwarded(request_rec *r, const apr_byte_t x_forwarded_headers) {
 	oidc_check_x_forwarded_hdr(r, x_forwarded_headers, OIDC_HDR_X_FORWARDED_HOST, OIDC_HTTP_HDR_X_FORWARDED_HOST,
-				   oidc_util_hdr_in_x_forwarded_host_get);
+				   oidc_http_hdr_in_x_forwarded_host_get);
 	oidc_check_x_forwarded_hdr(r, x_forwarded_headers, OIDC_HDR_X_FORWARDED_PORT, OIDC_HTTP_HDR_X_FORWARDED_PORT,
-				   oidc_util_hdr_in_x_forwarded_port_get);
+				   oidc_http_hdr_in_x_forwarded_port_get);
 	oidc_check_x_forwarded_hdr(r, x_forwarded_headers, OIDC_HDR_X_FORWARDED_PROTO, OIDC_HTTP_HDR_X_FORWARDED_PROTO,
-				   oidc_util_hdr_in_x_forwarded_proto_get);
+				   oidc_http_hdr_in_x_forwarded_proto_get);
 	oidc_check_x_forwarded_hdr(r, x_forwarded_headers, OIDC_HDR_FORWARDED, OIDC_HTTP_HDR_FORWARDED,
-				   oidc_util_hdr_in_forwarded_get);
+				   oidc_http_hdr_in_forwarded_get);
 }
 
 static const char *oidc_set_redirect_urls_allowed(cmd_parms *cmd, void *m, const char *arg) {
@@ -1650,7 +1645,7 @@ void *oidc_create_server_config(apr_pool_t *pool, server_rec *svr) {
 	c->http_timeout_short.request_timeout = OIDC_DEFAULT_HTTP_REQUEST_TIMEOUT_SHORT;
 	c->http_timeout_short.connect_timeout = OIDC_DEFAULT_HTTP_CONNECT_TIMEOUT_SHORT;
 	c->http_timeout_short.retries = OIDC_DEFAULT_HTTP_RETRIES_SHORT;
-	c->http_timeout_long.retry_interval = OIDC_DEFAULT_HTTP_RETRY_INTERVAL_SHORT;
+	c->http_timeout_short.retry_interval = OIDC_DEFAULT_HTTP_RETRY_INTERVAL_SHORT;
 	c->state_timeout = OIDC_DEFAULT_STATE_TIMEOUT;
 	c->max_number_of_state_cookies = OIDC_CONFIG_POS_INT_UNSET;
 	c->delete_oldest_state_cookies = OIDC_CONFIG_POS_INT_UNSET;
@@ -2518,7 +2513,7 @@ static apr_status_t oidc_cleanup_parent(void *data) {
 #endif /* (OPENSSL_VERSION_NUMBER < 0x10100000) && defined (OPENSSL_THREADS) && APR_HAS_THREADS */
 
 	EVP_cleanup();
-	curl_global_cleanup();
+	oidc_http_cleanup();
 
 	ap_log_error(APLOG_MARK, APLOG_INFO, 0, (server_rec *)data, "%s - shutdown", NAMEVERSION);
 
@@ -2566,7 +2561,7 @@ static int oidc_post_config(apr_pool_t *pool, apr_pool_t *p1, apr_pool_t *p2, se
 #endif
 	);
 
-	curl_global_init(CURL_GLOBAL_ALL);
+	oidc_http_init();
 
 #if ((OPENSSL_VERSION_NUMBER < 0x10100000) && defined(OPENSSL_THREADS) && APR_HAS_THREADS)
 	ssl_num_locks = CRYPTO_num_locks();
@@ -2647,12 +2642,12 @@ static const char *oidc_parse_config(cmd_parms *cmd, const char *require_line, c
 }
 
 static const authz_provider oidc_authz_claim_provider = {
-    &oidc_authz_checker_claim,
+    &oidc_authz_24_checker_claim,
     &oidc_parse_config,
 };
 #ifdef USE_LIBJQ
 static const authz_provider oidc_authz_claims_expr_provider = {
-    &oidc_authz_checker_claims_expr,
+    &oidc_authz_24_checker_claims_expr,
     NULL,
 };
 #endif
@@ -2743,7 +2738,7 @@ static apr_status_t oidc_filter_in_filter(ap_filter_t *f, apr_bucket_brigade *br
 
 			if (userdata_post_params != NULL) {
 				buf = apr_psprintf(f->r->pool, "%s%s", ctx->nbytes > 0 ? "&" : "",
-						   oidc_util_http_form_encoded_data(f->r, userdata_post_params));
+						   oidc_http_form_encoded_data(f->r, userdata_post_params));
 				b_out =
 				    apr_bucket_heap_create(buf, _oidc_strlen(buf), 0, f->r->connection->bucket_alloc);
 
@@ -2751,8 +2746,8 @@ static apr_status_t oidc_filter_in_filter(ap_filter_t *f, apr_bucket_brigade *br
 
 				ctx->nbytes += _oidc_strlen(buf);
 
-				if (oidc_util_hdr_in_content_length_get(f->r) != NULL)
-					oidc_util_hdr_in_set(f->r, OIDC_HTTP_HDR_CONTENT_LENGTH,
+				if (oidc_http_hdr_in_content_length_get(f->r) != NULL)
+					oidc_http_hdr_in_set(f->r, OIDC_HTTP_HDR_CONTENT_LENGTH,
 							     apr_psprintf(f->r->pool, "%ld", (long)ctx->nbytes));
 
 				apr_pool_userdata_set(NULL, OIDC_USERDATA_POST_PARAMS_KEY, NULL, f->r->pool);
@@ -2807,7 +2802,7 @@ void oidc_register_hooks(apr_pool_t *pool) {
 #else
 	static const char *const authzSucc[] = {"mod_authz_user.c", NULL};
 	ap_hook_check_user_id(oidc_check_user_id, NULL, NULL, APR_HOOK_MIDDLE);
-	ap_hook_auth_checker(oidc_auth_checker, NULL, authzSucc, APR_HOOK_MIDDLE);
+	ap_hook_auth_checker(oidc_authz_22_checker, NULL, authzSucc, APR_HOOK_MIDDLE);
 #endif
 }
 

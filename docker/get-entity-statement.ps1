@@ -3,20 +3,25 @@
 <#
 
 ./get-entity-statement.ps1 -Uri https://login.io.ubidemo1.com/.well-known/openid-federation
+./get-entity-statement.ps1 -Uri https://login.io.ubidemo1.com/.well-known/openid-federation -SingleJwk
 
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [string]
-    $Uri
+    $Uri,
+
+    [Parameter()]
+    [switch]
+    $SingleJwk
 )
 begin {
-    Import-Module Ubisecure.Jose
+    Import-Module Ubisecure.Jose -ErrorAction Stop
 }
 process {
     # fetch entity statement
-    $jwt = Invoke-RestMethod -Uri $Uri
+    $jwt = Invoke-RestMethod -Uri $Uri -ErrorAction Stop
     $body = $null
     # read entity statement body
     if (-not (Test-Jws -InputObject $jwt -BodyOut ([ref]$body))) {
@@ -24,12 +29,15 @@ process {
     }
     $entity = $body | ConvertFrom-Json -Depth 8 -AsHashtable
     # keys from entity statement
-    $jwks = $entity["jwks"]
+    $jwks = $entity["jwks"] | ConvertTo-Json -Depth 8 -Compress
     # validate self-signed entity statement
-    $entity = ConvertFrom-Jws -InputObject $jwt -Jwks ($jwks | ConvertTo-Json -Depth 8) -ErrorAction Stop | ConvertFrom-Json -Depth 8 -AsHashtable
-    # select single jwk (for testing)
-    if ($false) {
-        $jwks = $entity["jwks"] | ConvertTo-Json | ConvertFrom-Jwks | Test-JwkHeader -KeyId "AhCznFrryZ-X0HGzC0JHOZ5nMg8" -PassThru | ConvertFrom-Json -AsHashtable
+    $entity = ConvertFrom-Jws -InputObject $jwt -Jwks $jwks -ErrorAction Stop | ConvertFrom-Json -Depth 8 -AsHashtable
+    # select single verifier jwk (for testing jwks vs jwk)
+    if ($SingleJwk) {
+        $signedJwks = Invoke-RestMethod $entity["metadata"]["openid_provider"]["signed_jwks_uri"] -ErrorAction Stop
+        $jwk = $null
+        $null = $signedJwks | ConvertFrom-Jws -Jwks $jwks -JwkOut ([ref]$jwk) -ErrorAction Stop
+        $jwks = $jwk
     }
     # get file name from issuer
     $issuer = $entity["metadata"]["openid_provider"]["issuer"]
@@ -39,10 +47,10 @@ process {
     # generate provider file    
     $entity["metadata"]["openid_provider"] | ConvertTo-Json -Depth 8 | Out-File "$name.provider" -Encoding utf8NoBOM
     # generate conf file
-    [ordered] @{ "signed_jwks_uri_key" = $jwks } | ConvertTo-Json -Depth 8 | Out-File "$name.conf" -Encoding utf8NoBOM
+    [ordered] @{ "signed_jwks_uri_key" = ($jwks | ConvertFrom-Json) } | ConvertTo-Json -Depth 8 | Out-File "$name.conf" -Encoding utf8NoBOM
     # generate OIDCProviderSignedJwksUri.conf file
     $conf = @"
-OIDCProviderSignedJwksUri $($entity["metadata"]["openid_provider"]["signed_jwks_uri"] | ConvertTo-Json) $($jwks | ConvertTo-Json -Compress -Depth 8 | ConvertTo-Json)
+OIDCProviderSignedJwksUri $($entity["metadata"]["openid_provider"]["signed_jwks_uri"] | ConvertTo-Json) $($jwks | ConvertTo-Json)
 "@ 
     $conf | Out-File "OIDCProviderSignedJwksUri.conf" -Encoding ascii
 }

@@ -4,8 +4,10 @@ services:
       context: ".."
       dockerfile: "docker/mod_auth_openidc.dockerfile"
       args:
+#        mod_auth_openidc: "https://github.com/OpenIDC/mod_auth_openidc.git"
+#        mod_auth_openidc: "https://github.com/psteniusubi/mod_auth_openidc.git"
         mod_auth_openidc: "."
-    image: "my/mod_auth_openidc"
+    image: "local/mod_auth_openidc"
     container_name: "mod_auth_openidc"
     command:
       - "/usr/bin/true"
@@ -13,10 +15,12 @@ services:
     build:
       context: "."
       dockerfile: "httpd.dockerfile"
-    image: "my/httpd"
+    image: "local/httpd"
     container_name: "httpd"
     command:
       - "httpd-foreground"
+      - "-f"
+      - "./conf/httpd.conf"
     depends_on:
       - "mod_auth_openidc"
     ports:
@@ -25,7 +29,7 @@ services:
     build:
       context: "."
       dockerfile: "httpd.dockerfile"
-    image: "my/httpd"
+    image: "local/httpd"
     container_name: "httpd-metadata"
     command:
       - "httpd-foreground"

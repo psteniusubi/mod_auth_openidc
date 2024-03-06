@@ -2,12 +2,13 @@
 
 # Compiles mod_auth_openidc
 
-# docker image build -t my/mod_auth_openidc -f mod_auth_openidc.ockerfile .
-# docker image build -t my/mod_auth_openidc -f mod_auth_openidc.dockerfile --build-arg "mod_auth_openidc=https://github.com/psteniusubi/mod_auth_openidc.git" .
 #
-# docker image build -t my/mod_auth_openidc -f mod_auth_openidc.dockerfile --build-arg "mod_auth_openidc=." ..
+# docker image build -t local/mod_auth_openidc -f mod_auth_openidc.ockerfile ..
+# docker image build -t local/mod_auth_openidc -f mod_auth_openidc.dockerfile --build-arg "mod_auth_openidc=https://github.com/psteniusubi/mod_auth_openidc.git" ..
 #
-# docker container run --rm -it my/mod_auth_openidc
+# docker image build -t local/mod_auth_openidc -f mod_auth_openidc.dockerfile --build-arg "mod_auth_openidc=." ..
+#
+# docker container run --rm -it local/mod_auth_openidc
 #
 
 FROM ubuntu:22.04

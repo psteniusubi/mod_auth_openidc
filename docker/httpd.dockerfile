@@ -3,19 +3,19 @@
 # Runs Apache HTTP Server
 
 # 
-# docker image build -t my/httpd -f httpd.dockerfile .
-# docker container run --rm -it -p 443:443 --name httpd my/httpd 
-# docker container run --rm -it -p 443:443 --name httpd my/httpd httpd-foreground -f conf/httpd-metadata.conf
+# docker image build -t local/httpd -f httpd.dockerfile .
+# docker container run --rm -it -p 443:443 --name httpd local/httpd httpd-foreground -f conf/httpd.conf
+# docker container run --rm -it -p 443:443 --name httpd local/httpd httpd-foreground -f conf/httpd-metadata.conf
 # docker container exec -it httpd /bin/bash -l
 #
-# docker container run --rm -it -p 443:443 my/httpd /bin/bash -l
+# docker container run --rm -it -p 443:443 local/httpd /bin/bash -l
 #
 # docker container run --rm -it httpd:2.4 /bin/bash -l
 #
 # curl -k -i https://localhost/cgi-bin/printenv
 #
 
-FROM my/mod_auth_openidc AS mod_auth_openidc
+FROM local/mod_auth_openidc AS mod_auth_openidc
 
 FROM httpd:2.4
 

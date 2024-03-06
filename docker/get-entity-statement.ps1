@@ -14,10 +14,15 @@ param(
 
     [Parameter()]
     [switch]
-    $SingleJwk
+    $SingleJwk,
+
+    [Parameter()]
+    [string]
+    $OutDir = "."
 )
 begin {
     Import-Module Ubisecure.Jose -ErrorAction Stop
+    $null = New-Item $OutDir -ItemType Directory -Force -ErrorAction Stop
 }
 process {
     # fetch entity statement
@@ -44,13 +49,13 @@ process {
     $name = [System.Text.Encodings.Web.UrlEncoder]::Default.Encode(($issuer -replace "^http(s)?://", ""))
     # remove jwks_uri (makes sure signed_jwks_uri is used)
     $null = $entity["metadata"]["openid_provider"].Remove("jwks_uri")
-    # generate provider file    
-    $entity["metadata"]["openid_provider"] | ConvertTo-Json -Depth 8 | Out-File "$name.provider" -Encoding utf8NoBOM
-    # generate conf file
-    [ordered] @{ "signed_jwks_uri_key" = ($jwks | ConvertFrom-Json) } | ConvertTo-Json -Depth 8 | Out-File "$name.conf" -Encoding utf8NoBOM
+    # generate .provider file    
+    $entity["metadata"]["openid_provider"] | ConvertTo-Json -Depth 8 | Out-File (Join-Path $OutDir "$name.provider") -Encoding utf8NoBOM
+    # generate .conf file
+    [ordered] @{ "signed_jwks_uri_key" = ($jwks | ConvertFrom-Json) } | ConvertTo-Json -Depth 8 | Out-File (Join-Path $OutDir "$name.conf") -Encoding utf8NoBOM
     # generate OIDCProviderSignedJwksUri.conf file
     $conf = @"
 OIDCProviderSignedJwksUri $($entity["metadata"]["openid_provider"]["signed_jwks_uri"] | ConvertTo-Json) $($jwks | ConvertTo-Json)
 "@ 
-    $conf | Out-File "OIDCProviderSignedJwksUri.conf" -Encoding ascii
+    $conf | Out-File (Join-Path $OutDir "OIDCProviderSignedJwksUri.conf") -Encoding ascii
 }

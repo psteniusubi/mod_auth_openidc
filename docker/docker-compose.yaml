@@ -11,7 +11,21 @@ services:
     container_name: "mod_auth_openidc"
     command:
       - "/usr/bin/true"
-  httpd:
+  httpd-jwks:
+    build:
+      context: "."
+      dockerfile: "httpd.dockerfile"
+    image: "local/httpd"
+    container_name: "httpd-jwks"
+    command:
+      - "httpd-foreground"
+      - "-f"
+      - "./conf-jwks/httpd.conf"
+    depends_on:
+      - "mod_auth_openidc"
+    ports:
+      - 443:443
+  httpd-jwk:
     build:
       context: "."
       dockerfile: "httpd.dockerfile"
@@ -20,21 +34,35 @@ services:
     command:
       - "httpd-foreground"
       - "-f"
-      - "./conf/httpd.conf"
+      - "./conf-jwk/httpd.conf"
     depends_on:
       - "mod_auth_openidc"
     ports:
       - 443:443
-  httpd-metadata:
+  httpd-metadatadir-jwks:
     build:
       context: "."
       dockerfile: "httpd.dockerfile"
     image: "local/httpd"
-    container_name: "httpd-metadata"
+    container_name: "httpd-metadatadir-jwks"
     command:
       - "httpd-foreground"
       - "-f"
-      - "./conf/httpd-metadata.conf"
+      - "./conf-jwks/httpd-metadatadir.conf"
+    depends_on:
+      - "mod_auth_openidc"
+    ports:
+      - 443:443
+  httpd-metadatadir-jwk:
+    build:
+      context: "."
+      dockerfile: "httpd.dockerfile"
+    image: "local/httpd"
+    container_name: "httpd-metadatadir-jwk"
+    command:
+      - "httpd-foreground"
+      - "-f"
+      - "./conf-jwk/httpd-metadatadir.conf"
     depends_on:
       - "mod_auth_openidc"
     ports:

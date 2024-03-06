@@ -16,44 +16,38 @@
 
     docker container run --rm -it local/mod_auth_openidc
 
-# Apache HTTP
+# Apache configuration
 
-## Configuration
+    conf/
+        httpd-common.conf
+        localhost.pem
+    conf-jwks/
+        httpd.conf
+        httpd-metadatadir.conf
+        OIDCProviderSignedJwksUri.conf
+    conf-jwk/
+        httpd.conf
+        httpd-metadatadir.conf
+        OIDCProviderSignedJwksUri.conf
+    metadata-jwks/
+        login.io.ubidemo1.com%2Fuas.client
+        login.io.ubidemo1.com%2Fuas.conf
+        login.io.ubidemo1.com%2Fuas.provider
+    metadata-jwk/
+        login.io.ubidemo1.com%2Fuas.client
+        login.io.ubidemo1.com%2Fuas.conf
+        login.io.ubidemo1.com%2Fuas.provider
+
+## Signed JWKS
 
 Generate OIDCProviderSignedJwksUri.conf, issuer.provider and issuer.conf files from entity statement
 
-    pwsh -f get-entity-statement.ps1 -Uri https://login.io.ubidemo1.com/.well-known/openid-federation
+    pwsh -f get-entity-statement.ps1 -Uri https://login.io.ubidemo1.com/.well-known/openid-federation -OutDir jwks
+    pwsh -f get-entity-statement.ps1 -Uri https://login.io.ubidemo1.com/.well-known/openid-federation -SingleJwk -OutDir jwk
 
-## Create image
+## TLS
 
-Get example.com.pem from PKI
-
-    docker image build -t local/httpd -f httpd.dockerfile .
-
-## Start
-
-    docker container run --rm -it -p 443:443 --name httpd local/httpd httpd-foreground
-
-### Test
-
-Navigate to https://localhost/cgi-bin/printenv
-
-    curl -k -i https://localhost/cgi-bin/printenv
-
-## Start (OIDCMetadataDir)
-
-    docker container run --rm -it -p 443:443 --name httpd local/httpd httpd-foreground -f conf/httpd-metadata.conf
-
-    docker container run --rm -it -p 443:443 --name httpd local/httpd /bin/bash -l
-    ./bin/httpd -DFOREGROUND -f conf/httpd-metadata.conf
-
-### Test
-
-Navigate to https://localhost/oidc/redirect?iss=https%3A%2F%2Flogin.io.ubidemo1.com%2Fuas&target_link_uri=https://localhost/cgi-bin/printenv
-
-## Debug
-
-    docker container run --rm -it -p 443:443 local/httpd /bin/bash -l
+Get localhost.pem from PKI
 
 # Docker Compose
 
@@ -62,12 +56,33 @@ Navigate to https://localhost/oidc/redirect?iss=https%3A%2F%2Flogin.io.ubidemo1.
     docker compose build --build-arg "mod_auth_openidc=."
     docker compose build --build-arg "mod_auth_openidc=https://github.com/OpenIDC/mod_auth_openidc.git"
 
-## Run with httpd.conf
+## Run with jwks/httpd.conf
 
-    docker compose up httpd
+    docker compose up httpd-jwks
     docker compose down
 
-## Run with httpd-metadata.conf
+## Run with jwks/httpd-metadatadir.conf
 
-    docker compose up httpd-metadata
+    docker compose up httpd-metadatadir-jwks
     docker compose down
+
+## Run with jwk/httpd.conf
+
+    docker compose up httpd-jwk
+    docker compose down
+
+## Run with jwk/httpd-metadatadir.conf
+
+    docker compose up httpd-metadatadir-jwk
+    docker compose down
+
+## Debug
+
+    docker compose run --rm -it httpd-jwks bash -l
+
+### Test
+
+Navigate to https://localhost/cgi-bin/printenv
+
+    curl -k -i https://localhost/cgi-bin/printenv
+

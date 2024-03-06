@@ -1,21 +1,3 @@
-# mod_auth_openidc
-
-## Compile
-
-    docker image build -t local/mod_auth_openidc -f mod_auth_openidc.dockerfile .
-
-## From fork
-
-    docker image build -t local/mod_auth_openidc -f mod_auth_openidc.dockerfile --build-arg "mod_auth_openidc=https://github.com/psteniusubi/mod_auth_openidc.git" .
-
-## From local sources
-
-    docker image build -t local/mod_auth_openidc -f mod_auth_openidc.dockerfile --build-arg "mod_auth_openidc=." ..
-
-## Debug
-
-    docker container run --rm -it local/mod_auth_openidc
-
 # Apache configuration
 
     conf/
@@ -54,6 +36,7 @@ Get localhost.pem from PKI
 ## Build
 
     docker compose build --build-arg "mod_auth_openidc=."
+    docker compose build --build-arg "mod_auth_openidc=https://github.com/psteniusubi/mod_auth_openidc.git#feat-signed-jwks-verifier-jwks"
     docker compose build --build-arg "mod_auth_openidc=https://github.com/OpenIDC/mod_auth_openidc.git"
 
 ## Run with jwks/httpd.conf
@@ -76,13 +59,10 @@ Get localhost.pem from PKI
     docker compose up httpd-metadatadir-jwk
     docker compose down
 
-## Debug
-
-    docker compose run --rm -it httpd-jwks bash -l
-
-### Test
+## Test
 
 Navigate to https://localhost/cgi-bin/printenv
 
-    curl -k -i https://localhost/cgi-bin/printenv
+## Debug
 
+    docker compose run --rm -it httpd-jwks bash -l

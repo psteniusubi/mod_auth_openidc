@@ -35,6 +35,8 @@ Get localhost.pem from PKI
 
 ## Build
 
+Select one of
+
     docker compose build --build-arg "mod_auth_openidc=."
     docker compose build --build-arg "mod_auth_openidc=https://github.com/psteniusubi/mod_auth_openidc.git#feat-signed-jwks-verifier-jwks"
     docker compose build --build-arg "mod_auth_openidc=https://github.com/OpenIDC/mod_auth_openidc.git"

@@ -44,131 +44,262 @@
 #include "metrics.h"
 #include "pcre_subst.h"
 
-static apr_byte_t oidc_authz_match_value(request_rec *r, const char *spec_c, const json_t *val, const char *key) {
+static apr_byte_t oidc_authz_match_json_string(request_rec *r, const char *spec, json_t *val, const char *key) {
+	return (_oidc_strcmp(json_string_value(val), spec) == 0);
+}
 
-	const json_t *elem = NULL;
+static apr_byte_t oidc_authz_match_json_integer(request_rec *r, const char *spec, json_t *val, const char *key) {
+	json_int_t i = 0;
+	if ((spec == NULL) || (val == NULL))
+		return FALSE;
+	if (sscanf(spec, "%" JSON_INTEGER_FORMAT, &i) != 1) {
+		oidc_warn(r, "integer parsing error for spec input: %s", spec);
+		return FALSE;
+	}
+	return (json_integer_value(val) == i);
+}
+
+static apr_byte_t oidc_authz_match_json_real(request_rec *r, const char *spec, json_t *val, const char *key) {
+	double d = 0;
+	if ((spec == NULL) || (val == NULL))
+		return FALSE;
+	if (sscanf(spec, "%lf", &d) != 1) {
+		oidc_warn(r, "double parsing error for spec input: %s", spec);
+		return FALSE;
+	}
+	return (json_real_value(val) == d);
+}
+
+static apr_byte_t oidc_authz_match_json_true(request_rec *r, const char *spec, json_t *val, const char *key) {
+	if ((spec == NULL) || (val == NULL))
+		return FALSE;
+	return (_oidc_strcmp(spec, "true") == 0);
+}
+
+static apr_byte_t oidc_authz_match_json_false(request_rec *r, const char *spec, json_t *val, const char *key) {
+	if ((spec == NULL) || (val == NULL))
+		return FALSE;
+	return (_oidc_strcmp(spec, "false") == 0);
+}
+
+static apr_byte_t oidc_authz_match_json_null(request_rec *r, const char *spec, json_t *val, const char *key) {
+	if ((spec == NULL) || (val == NULL))
+		return FALSE;
+	return (_oidc_strcmp(spec, "null") == 0);
+}
+
+typedef apr_byte_t(oidc_match_json_function_t)(request_rec *r, const char *spec, json_t *val, const char *key);
+
+typedef struct oidc_authz_json_handler_t {
+	int type;
+	oidc_match_json_function_t *handler;
+} oidc_authz_json_handler_t;
+
+static apr_byte_t oidc_authz_match_json_array(request_rec *r, const char *spec, json_t *val, const char *key);
+
+// clang-format off
+static oidc_authz_json_handler_t _oidc_authz_json_handlers[] = {
+	{ JSON_ARRAY, oidc_authz_match_json_array },
+	{ JSON_STRING, oidc_authz_match_json_string },
+	{ JSON_INTEGER, oidc_authz_match_json_integer },
+	{ JSON_REAL, oidc_authz_match_json_real },
+	{ JSON_TRUE, oidc_authz_match_json_true },
+	{ JSON_FALSE, oidc_authz_match_json_false },
+	{ JSON_NULL, oidc_authz_match_json_null },
+	{ 0, NULL}
+};
+// clang-format on
+
+static apr_byte_t oidc_authz_match_json_array(request_rec *r, const char *spec, json_t *val, const char *key) {
 	int i = 0;
+	json_t *e = NULL;
+	oidc_authz_json_handler_t *h = NULL;
 
-	oidc_debug(r, "matching: spec_c=%s, key=%s", spec_c, key);
+	if ((spec == NULL) || (val == NULL) || (key == NULL))
+		return FALSE;
 
-	/* see if it is a string and it (case-insensitively) matches the Require'd value */
-	if (json_is_string(val)) {
+	// loop over the elements in the array, trying to find a match
+	for (i = 0; i < json_array_size(val); i++) {
+		e = json_array_get(val, i);
 
-		if (_oidc_strcmp(json_string_value(val), spec_c) == 0)
-			return TRUE;
-
-		/* see if it is a integer and it equals the Require'd value */
-	} else if (json_is_integer(val)) {
-
-		if (json_integer_value(val) == _oidc_str_to_int(spec_c, -1))
-			return TRUE;
-
-		/* see if it is a boolean and it (case-insensitively) matches the Require'd value */
-	} else if (json_is_boolean(val)) {
-
-		if (_oidc_strcmp((json_is_true(val) ? "true" : "false"), spec_c) == 0)
-			return TRUE;
-
-		/* if it is an array, we'll walk it */
-	} else if (json_is_array(val)) {
-
-		/* compare the claim values */
-		for (i = 0; i < json_array_size(val); i++) {
-
-			elem = json_array_get(val, i);
-
-			if (json_is_string(elem)) {
-				/*
-				 * approximately compare the claim value (ignoring
-				 * whitespace). At this point, spec_c points to the
-				 * NULL-terminated value pattern.
-				 */
-				if (_oidc_strcmp(json_string_value(elem), spec_c) == 0)
+		// loop over the JSON object type handlers
+		for (h = _oidc_authz_json_handlers; h->handler; h++) {
+			if (h->type == json_typeof(e)) {
+				// avoid recursing into a nested array; matching need to be done with the "." syntax
+				if (json_typeof(e) == JSON_ARRAY)
+					// we want h->handler to end up as NULL to printout a warning at the end
+					continue;
+				// break out of the loop because we found a handler, and possibly a match
+				if (h->handler(r, spec, e, key) == TRUE)
 					return TRUE;
-
-			} else if (json_is_boolean(elem)) {
-
-				if (_oidc_strcmp((json_is_true(elem) ? "true" : "false"), spec_c) == 0)
-					return TRUE;
-
-			} else if (json_is_integer(elem)) {
-
-				if (json_integer_value(elem) == _oidc_str_to_int(spec_c, -1))
-					return TRUE;
-
-			} else {
-
-				oidc_warn(r, "unhandled in-array JSON object type [%d] for key \"%s\"", elem->type,
-					  (const char *)key);
+				break;
 			}
 		}
+		if (h->handler == NULL)
+			oidc_warn(r, "unhandled in-array JSON object type [%d] for key \"%s\"", json_typeof(e), key);
+		// else: just no match, continue with the next array element
+	}
+	return FALSE;
+}
 
-	} else {
-		oidc_warn(r, "unhandled JSON object type [%d] for key \"%s\"", val->type, (const char *)key);
+static apr_byte_t oidc_authz_match_value(request_rec *r, const char *spec, json_t *val, const char *key) {
+	oidc_authz_json_handler_t *h = NULL;
+
+	if ((spec == NULL) || (val == NULL) || (key == NULL))
+		return FALSE;
+
+	oidc_debug(r, "matching: spec=%s, key=%s", spec, key);
+
+	for (h = _oidc_authz_json_handlers; h->handler; h++) {
+		if (h->type == json_typeof(val))
+			return h->handler(r, spec, val, key);
+	}
+
+	oidc_warn(r, "unhandled JSON object type [%d] for key \"%s\"", json_typeof(val), (const char *)key);
+
+	return FALSE;
+}
+
+typedef apr_byte_t(oidc_match_pcre_function_t)(request_rec *r, const char *, json_t *, const char *,
+					       struct oidc_pcre *);
+
+typedef struct oidc_authz_pcre_handler_t {
+	int type;
+	oidc_match_pcre_function_t *handler;
+} oidc_authz_pcre_handler_t;
+
+static apr_byte_t oidc_authz_match_pcre_string(request_rec *r, const char *spec, json_t *val, const char *key,
+					       struct oidc_pcre *preg) {
+	char *s_err = NULL;
+	const char *s = json_string_value(val);
+
+	if ((spec == NULL) || (val == NULL) || (key == NULL) || (preg == NULL))
+		return FALSE;
+
+	if (oidc_pcre_exec(r->pool, preg, s, (int)_oidc_strlen(s), &s_err) <= 0) {
+		if (s_err)
+			oidc_debug(r, "oidc_pcre_exec error: %s", s_err);
+		return FALSE;
+	}
+
+	oidc_debug(r, "value \"%s\" matched regex \"%s\" for key \"%s\"", s, spec, key);
+
+	return TRUE;
+}
+
+static apr_byte_t oidc_authz_match_pcre_array(request_rec *r, const char *spec, json_t *val, const char *key,
+					      struct oidc_pcre *);
+
+// clang-format off
+static oidc_authz_pcre_handler_t _oidc_authz_pcre_handlers[] = {
+	{ JSON_ARRAY, oidc_authz_match_pcre_array },
+	{ JSON_STRING, oidc_authz_match_pcre_string },
+	{ 0, NULL}
+};
+// clang-format on
+
+static apr_byte_t oidc_authz_match_pcre_array(request_rec *r, const char *spec, json_t *val, const char *key,
+					      struct oidc_pcre *preg) {
+
+	int i = 0;
+	json_t *e = NULL;
+
+	if ((spec == NULL) || (val == NULL) || (key == NULL) || (preg == NULL))
+		return FALSE;
+
+	// loop over the elements in the array, trying to find a match
+	for (i = 0; i < json_array_size(val); i++) {
+		e = json_array_get(val, i);
+
+		if (json_typeof(e) == JSON_STRING) {
+
+			if (oidc_authz_match_pcre_string(r, spec, e, key, preg) == TRUE)
+				return TRUE;
+
+			// need to free any failed match to avoid a memory leak in subsequent calls to oidc_pcre_exec
+			oidc_pcre_free_match(preg);
+
+			continue;
+		}
+
+		oidc_warn(r, "unhandled non-string in-array JSON object type [%d] for key \"%s\"", json_typeof(e), key);
 	}
 
 	return FALSE;
 }
 
-static apr_byte_t oidc_authz_match_expression(request_rec *r, const char *spec_c, const json_t *val) {
+static apr_byte_t oidc_authz_match_pcre(request_rec *r, const char *spec, json_t *val, const char *key) {
 	apr_byte_t rc = FALSE;
 	struct oidc_pcre *preg = NULL;
-	char *error_str = NULL;
-	int i = 0;
+	char *s_err = NULL;
+	oidc_authz_pcre_handler_t *h = NULL;
 
-	/* setup the regex; spec_c points to the NULL-terminated value pattern */
-	preg = oidc_pcre_compile(r->pool, spec_c, &error_str);
+	if ((spec == NULL) || (val == NULL) || (key == NULL))
+		return FALSE;
 
+	preg = oidc_pcre_compile(r->pool, spec, &s_err);
 	if (preg == NULL) {
-		oidc_error(r, "pattern [%s] is not a valid regular expression: %s", spec_c, error_str);
-		goto end;
+		oidc_error(r, "pattern [%s] is not a valid regular expression: %s", spec, s_err ? s_err : "<n/a>");
+		return FALSE;
 	}
 
-	/* see if the claim is a literal string */
-	if (json_is_string(val)) {
-
-		error_str = NULL;
-		/* PCRE-compare the string value against the expression */
-		if (oidc_pcre_exec(r->pool, preg, json_string_value(val), (int)_oidc_strlen(json_string_value(val)),
-				   &error_str) > 0) {
-			oidc_debug(r, "value \"%s\" matched regex \"%s\"", json_string_value(val), spec_c);
-			rc = TRUE;
-			goto end;
-		} else if (error_str) {
-			oidc_debug(r, "pcre error (string): %s", error_str);
-		}
-
-		/* see if the claim value is an array */
-	} else if (json_is_array(val)) {
-
-		/* compare the claim values in the array against the expression */
-		for (i = 0; i < json_array_size(val); i++) {
-
-			json_t *elem = json_array_get(val, i);
-			if (json_is_string(elem)) {
-
-				error_str = NULL;
-				/* PCRE-compare the string value against the expression */
-				if (oidc_pcre_exec(r->pool, preg, json_string_value(elem),
-						   (int)_oidc_strlen(json_string_value(elem)), &error_str) > 0) {
-					oidc_debug(r, "array value \"%s\" matched regex \"%s\"",
-						   json_string_value(elem), spec_c);
-					rc = TRUE;
-					goto end;
-				} else if (error_str) {
-					oidc_pcre_free_match(preg);
-					oidc_debug(r, "pcre error (array): %s", error_str);
-				}
-			}
+	// loop over the JSON object PCRE handlers
+	for (h = _oidc_authz_pcre_handlers; h->handler; h++) {
+		if (h->type == json_typeof(val)) {
+			// break out of the loop because we found a handler, and possibly a match
+			if (h->handler(r, spec, val, key, preg) == TRUE)
+				rc = TRUE;
+			break;
 		}
 	}
 
-end:
+	// see if we have found an object handler
+	if (h->handler == NULL)
+		oidc_warn(r, "unhandled JSON object type [%d] for key \"%s\"", json_typeof(val), key);
 
-	if (preg)
-		oidc_pcre_free(preg);
+	oidc_pcre_free(preg);
 
 	return rc;
+}
+
+static apr_byte_t oidc_authz_separator_dot(request_rec *r, const char *spec, json_t *val, const char *key) {
+	if ((spec == NULL) || (val == NULL) || (key == NULL))
+		return FALSE;
+	if (json_is_object(val)) {
+		oidc_debug(r, "attribute chunk matched, evaluating children of key: \"%s\".", key);
+		return oidc_authz_match_claim(r, spec, val);
+	}
+	oidc_warn(r,
+		  "JSON key \"%s\" matched a \".\" and child nodes should be evaluated, but the corresponding JSON "
+		  "value is not an object",
+		  key);
+	return FALSE;
+}
+
+// clang-format off
+static oidc_authz_json_handler_t _oidc_authz_separator_handlers[] = {
+		// there's some overloading going on here, applying a char as an int index
+	{ OIDC_CHAR_COLON, oidc_authz_match_value },
+	{ OIDC_CHAR_TILDE, oidc_authz_match_pcre },
+	{ OIDC_CHAR_DOT, oidc_authz_separator_dot },
+	{ 0, NULL}
+};
+// clang-format on
+
+static apr_byte_t oidc_auth_handle_separator(request_rec *r, const char *key, json_t *val, const char *spec) {
+	oidc_authz_json_handler_t *h = NULL;
+	if ((spec == NULL) || (val == NULL) || (key == NULL))
+		return FALSE;
+	for (h = _oidc_authz_separator_handlers; h->handler; h++) {
+		// there's some overloading going on here, applying a char as an int index
+		if (h->type == (*spec)) {
+			// skip the separator
+			spec++;
+			if (h->handler(r, spec, val, key) == TRUE)
+				return TRUE;
+		}
+	}
+	return FALSE;
 }
 
 /*
@@ -176,14 +307,14 @@ end:
  */
 apr_byte_t oidc_authz_match_claim(request_rec *r, const char *const attr_spec, json_t *claims) {
 
-	const char *key;
-	json_t *val;
+	const char *key = NULL, *attr_c = NULL, *spec_c = NULL;
+	json_t *val = NULL;
 
-	/* if we don't have any claims, they can never match any Require claim primitive */
+	// if we don't have any claims, they can never match any Require claim primitive
 	if (claims == NULL)
 		return FALSE;
 
-	/* loop over all of the user claims */
+	// loop over all of the user claims to find one that matches the attr_spec
 	void *iter = json_object_iter(claims);
 	while (iter) {
 
@@ -192,53 +323,18 @@ apr_byte_t oidc_authz_match_claim(request_rec *r, const char *const attr_spec, j
 
 		oidc_debug(r, "evaluating key \"%s\"", (const char *)key);
 
-		const char *attr_c = key;
-		const char *spec_c = attr_spec;
+		// initialize pointers for traversing the attribute name and the Require spec
+		attr_c = key;
+		spec_c = attr_spec;
 
-		/* walk both strings until we get to the end of either or we find a differing character */
+		// walk both strings until we get to the end of either or we find a differing character
 		while ((*attr_c) && (*spec_c) && (*attr_c) == (*spec_c)) {
 			attr_c++;
 			spec_c++;
 		}
 
-		/* The match is a success if we walked the whole claim name and the attr_spec is at a colon. */
-		if (!(*attr_c) && (*spec_c) == OIDC_CHAR_COLON) {
-
-			/* skip the colon */
-			spec_c++;
-
-			if (oidc_authz_match_value(r, spec_c, val, key) == TRUE)
-				return TRUE;
-
-			/* a tilde denotes a string PCRE match */
-		} else if (!(*attr_c) && (*spec_c) == OIDC_CHAR_TILDE) {
-
-			/* skip the tilde */
-			spec_c++;
-
-			if (oidc_authz_match_expression(r, spec_c, val) == TRUE)
-				return TRUE;
-
-			/* dot means child nodes must be evaluated */
-		} else if (!(*attr_c) && (*spec_c) == OIDC_CHAR_DOT) {
-
-			/* skip the dot */
-			spec_c++;
-
-			if (json_is_object(val)) {
-				oidc_debug(r, "attribute chunk matched, evaluating children of key: \"%s\".", key);
-				return oidc_authz_match_claim(r, spec_c, json_object_get(claims, key));
-			} else if (json_is_array(val)) {
-				oidc_debug(r, "attribute chunk matched, evaluating array values of key: \"%s\".", key);
-				return oidc_authz_match_value(r, spec_c, json_object_get(claims, key), key);
-			} else {
-				oidc_warn(r,
-					  "\"%s\" matched, and child nodes or array values should be evaluated, but "
-					  "value is not an object or array.",
-					  key);
-				return FALSE;
-			}
-		}
+		if ((!(*attr_c)) && (oidc_auth_handle_separator(r, key, val, spec_c) == TRUE))
+			return TRUE;
 
 		iter = json_object_iter_next(claims, iter);
 	}

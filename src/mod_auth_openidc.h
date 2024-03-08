@@ -256,7 +256,7 @@ typedef struct oidc_jwks_uri_t {
 	char *uri;
 	int refresh_interval;
 	char *signed_uri;
-	oidc_jwk_t *jwk;
+	apr_array_header_t *jwk_list;
 } oidc_jwks_uri_t;
 
 typedef struct oidc_provider_t {
@@ -596,8 +596,6 @@ apr_byte_t oidc_oauth_get_bearer_token(request_rec *r, const char **access_token
 #define OIDC_CLAIM_TARGET_LINK_URI "target_link_uri"
 #define OIDC_CLAIM_SID "sid"
 #define OIDC_CLAIM_EVENTS "events"
-
-#define OIDC_JWK_KEYS "keys"
 
 #define OIDC_HOOK_INFO_FORMAT_JSON "json"
 #define OIDC_HOOK_INFO_FORMAT_HTML "html"

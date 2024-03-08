@@ -74,7 +74,7 @@ extern module AP_MODULE_DECLARE_DATA auth_openidc_module;
 #define OIDC_METADATA_CLIENT_SECRET "client_secret"
 #define OIDC_METADATA_CLIENT_SECRET_EXPIRES_AT "client_secret_expires_at"
 
-#define OIDC_METADATA_KEYS "keys"
+#define OIDC_METADATA_KEYS OIDC_JOSE_JWKS_KEYS_STR
 
 #define OIDC_METADATA_CLIENT_JWKS_URI "client_jwks_uri"
 #define OIDC_METADATA_ID_TOKEN_SIGNED_RESPONSE_ALG "id_token_signed_response_alg"
@@ -575,12 +575,24 @@ static apr_byte_t oidc_metadata_jwks_retrieve_and_cache(request_rec *r, oidc_cfg
 			  &cfg->outgoing_proxy, oidc_dir_cfg_pass_cookies(r), NULL, NULL, NULL) == FALSE)
 		return FALSE;
 
-	if ((jwks_uri->signed_uri != NULL) && (jwks_uri->jwk != NULL)) {
+	if ((jwks_uri->signed_uri != NULL) && (jwks_uri->jwk_list != NULL)) {
 
 		oidc_jwt_t *jwt = NULL;
 		oidc_jose_error_t err;
 		apr_hash_t *keys = apr_hash_make(r->pool);
-		apr_hash_set(keys, jwks_uri->jwk->kid ? jwks_uri->jwk->kid : "", APR_HASH_KEY_STRING, jwks_uri->jwk);
+
+		oidc_debug(r, "signed_jwks verifier keys count=%d", jwks_uri->jwk_list->nelts);
+		for (int i = 0; i < jwks_uri->jwk_list->nelts; i++) {
+			oidc_jwk_t *jwk = APR_ARRAY_IDX(jwks_uri->jwk_list, i, oidc_jwk_t *);
+			if (jwk->kid != NULL) {
+				oidc_debug(r, "signed_jwks verifier kid=%s", jwk->kid);
+				apr_hash_set(keys, jwk->kid, APR_HASH_KEY_STRING, jwk);
+			} else {
+				const char *kid = apr_psprintf(r->pool, "%d", apr_hash_count(keys));
+				oidc_debug(r, "signed_jwks verifier kid=%s", kid);
+				apr_hash_set(keys, kid, APR_HASH_KEY_STRING, jwk);
+			}
+		}
 
 		if (oidc_jwt_parse(r->pool, response, &jwt, keys, FALSE, &err) == FALSE) {
 			oidc_error(r, "parsing JWT failed: %s", oidc_jose_e2s(r->pool, err));
@@ -1092,13 +1104,13 @@ static void oidc_metadata_get_jwks(request_rec *r, json_t *json, apr_array_heade
 	oidc_jwk_t *jwk = NULL;
 	json_t *elem = NULL;
 
-	keys = json_object_get(json, OIDC_JWK_KEYS);
+	keys = json_object_get(json, OIDC_JOSE_JWKS_KEYS_STR);
 	if (keys == NULL)
 		return;
 
 	if (!json_is_array(keys)) {
 		oidc_error(r, "trying to parse a list of JWKs but the value for key \"%s\" is not a JSON array",
-			   OIDC_JWK_KEYS);
+				OIDC_JOSE_JWKS_KEYS_STR);
 		return;
 	}
 
@@ -1117,6 +1129,28 @@ static void oidc_metadata_get_jwks(request_rec *r, json_t *json, apr_array_heade
 	}
 }
 
+static void oidc_metadata_get_signed_jwks_uri_key(request_rec *r, json_t *j_conf, apr_array_header_t **jwk_list,
+						  apr_array_header_t *default_jwk_list) {
+	oidc_jose_error_t err;
+	json_t *json = json_object_get(j_conf, "signed_jwks_uri_key");
+	if (oidc_is_jwk(json)) {
+		oidc_jwk_t *jwk = NULL;
+		if (oidc_jwk_parse_json(r->pool, json, &jwk, &err) != TRUE) {
+			oidc_warn(r, "oidc_metadata_get_signed_jwks_uri_key failed: %s", oidc_jose_e2s(r->pool, err));
+			return;
+		}
+		*jwk_list = apr_array_make(r->pool, 1, sizeof(oidc_jwk_t *));
+		APR_ARRAY_PUSH(*jwk_list, oidc_jwk_t *) = jwk;
+	} else if (oidc_is_jwks(json)) {
+		if (oidc_jwks_parse_json(r->pool, json, jwk_list, &err) != TRUE) {
+			oidc_warn(r, "oidc_metadata_get_signed_jwks_uri_key failed: %s", oidc_jose_e2s(r->pool, err));
+			return;
+		}
+	} else if (default_jwk_list != NULL) {
+		*jwk_list = default_jwk_list;
+	}
+}
+
 /*
  * parse the JSON conf metadata in to a oidc_provider_t struct
  */
@@ -1127,16 +1161,7 @@ apr_byte_t oidc_metadata_conf_parse(request_rec *r, oidc_cfg *cfg, json_t *j_con
 
 	oidc_metadata_get_jwks(r, j_conf, &provider->client_keys);
 
-	oidc_jose_error_t err;
-	json_t *jwk = json_object_get(j_conf, "signed_jwks_uri_key");
-	if (jwk != NULL) {
-		if (oidc_jwk_parse_json(r->pool, jwk, &provider->jwks_uri.jwk, &err) == FALSE) {
-			oidc_warn(r, "oidc_jwk_parse_json failed for \"signed_jwks_uri_key\": %s",
-				  oidc_jose_e2s(r->pool, err));
-		}
-	} else if (cfg->provider.jwks_uri.jwk != NULL) {
-		provider->jwks_uri.jwk = cfg->provider.jwks_uri.jwk;
-	}
+	oidc_metadata_get_signed_jwks_uri_key(r, j_conf, &provider->jwks_uri.jwk_list, cfg->provider.jwks_uri.jwk_list);
 
 	/* get the (optional) signing & encryption settings for the id_token */
 	oidc_metadata_get_valid_string(r, j_conf, OIDC_METADATA_ID_TOKEN_SIGNED_RESPONSE_ALG,
